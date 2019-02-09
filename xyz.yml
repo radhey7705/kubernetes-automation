@@ -1,5 +1,9 @@
 - hosts: all
   tasks:
+   - name: creating user
+     user:
+        name: user
+        group: sudo
    - name: update apt
      shell: apt update
    - name: install apt-transport-https
@@ -29,10 +33,12 @@
        update_cache: true
    - name: "add the GPG key" 
      shell: "curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -"
+   - name: "check the apt key" 
+     shell: "apt-key fingerprint 0EBFCD88"
    - name: 
-     shell: "add-apt-repository 'deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable'"
+     shell: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
    - name: update apt
-     shell: sudo apt update
+     shell: apt update
    - name: install Docker-ce
      apt:
        name: docker-ce
@@ -45,6 +51,8 @@
          enabled: yes
    - name: update apt
      shell: apt update
+   - name: stop auto-updation of docker-ce
+     shell: apt-mark hold docker-ce
    - name: install APT Transport HTTPS
      apt:
        name: apt-transport-https
@@ -62,19 +70,56 @@
      shell: apt update
    - name: install kubelet
      apt:
-       name: kubelet=1.10.12-00
+       name: kubelet
        state: present
        update_cache: true
    - name: install kubeadm
      apt:
-       name: kubeadm=1.10.12-00
+       name: kubeadm
        state: present
+   - name: stop auto update
+     shell: apt-mark hold  kubelet kubeadm
 
 - hosts: master
-  become: yes
   tasks:
    - name: install kubectl
      apt:
-       name: kubectl=1.10.12-00
+       name: kubectl
        state: present
        force: yes
+   - name: stop auto update kubectl
+     shell: apt-mark hold kubectl
+   - name:  pulling kubernetes images 
+     shell: kubeadm config images pull
+   - name: initializing kubernetes
+     shell: kubeadm init --pod-network-cidr=255.255.0.0/16
+     ignore_errors: yes
+   - name: creating file
+     shell: mkdir /root/.kube 
+     ignore_errors: yes
+   - name: copying the admin.conf file in .kube directory
+     shell: cp -i /etc/kubernetes/admin.conf /root/.kube/config
+   - name: changing ownership of config file
+     shell: chown $(id -u):$(id -g) /root/.kube/config
+     #   - name: setting up path for kubeconfig
+     # shell: export KUBECONFIG=/root/.kube/config
+     # - name: update apt
+     #  shell: "echo 'export KUBECONFIG=/home/user/.kube/config' >> /etc/profile && echo 'export KUBECONFIG=/home/user/.kube/config' >> /etc/bash.bashrc"
+   - name: copying file etcd.yaml 
+     copy:
+        src: etcd.yaml
+        dest: /root/etcd.yaml
+        owner: root
+        group: root
+        mode: 0644
+   - name:  copying file calico.yaml 
+     copy:
+        src: calico.yaml
+        dest: /root/calico.yaml
+        owner: root
+        group: root
+        mode: 0644
+   - name: Install an etcd instance 
+     shell: "kubectl apply -f https://docs.projectcalico.org/v3.5/getting-started/kubernetes/installation/hosted/etcd.yaml"
+   - name: Install Calico 
+     shell: "kubectl apply -f https://docs.projectcalico.org/v3.5/getting-started/kubernetes/installation/hosted/calico.yaml"
